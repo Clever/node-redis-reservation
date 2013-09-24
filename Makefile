@@ -21,7 +21,7 @@ test-cov: build
 	# jscoverage only accepts directory arguments so have to rebuild everything
 	rm -rf lib-js-cov
 	jscoverage lib-js lib-js-cov
-	NODE_ENV=test TEST_UNDERSTREAM_COV=1 node_modules/mocha/bin/mocha --compilers coffee:coffee-script -R html-cov test/*.coffee | tee coverage.html
+	NODE_ENV=test TEST_RESERVATION_COV=1 node_modules/mocha/bin/mocha --compilers coffee:coffee-script -R html-cov test/*.coffee | tee coverage.html
 	open coverage.html
 
 publish:

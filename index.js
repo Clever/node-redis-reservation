@@ -1,2 +1,2 @@
-var path = __dirname + '/' + (process.env.TEST_UNDERSTREAM_COV ? 'lib-js-cov' : 'lib-js') + '/understream';
+var path = __dirname + '/' + (process.env.TEST_RESERVATION_COV ? 'lib-js-cov' : 'lib-js') + '/index';
 module.exports = require(path);
