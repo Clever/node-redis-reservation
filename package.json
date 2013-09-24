@@ -1,0 +1,33 @@
+{
+  "name": "redis-reservation",
+  "version": "0.0.1",
+  "description": "Resource reservation (locking) libraries using a Redis backend, with customizable timeouts and keep-alive support.",
+  "main": "index.js",
+  "scripts": {
+    "test": "make -Br test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Clever/redis-reservation"
+  },
+  "keywords": [
+    "locking",
+    "redis",
+    "node"
+  ],
+  "author": "Clever (https://getclever.com)",
+  "license": "BSD",
+  "bugs": {
+    "url": "https://github.com/Clever/redis-reservation/issues"
+  },
+  "dependencies": {
+    "redis": "~0.8.4",
+    "coffee-script": "~1.6.3",
+    "underscore": "~1.5.2",
+    "async": "~0.2.9",
+    "debug": "~0.7.2"
+  },
+  "devDependencies": {
+    "mocha": "~1.13.0"
+  }
+}
