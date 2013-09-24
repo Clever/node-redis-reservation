@@ -8,7 +8,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Clever/redis-reservation"
+    "url": "https://github.com/Clever/node-redis-reservation"
   },
   "keywords": [
     "locking",
