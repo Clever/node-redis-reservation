@@ -2,7 +2,7 @@ _     = require 'underscore'
 os    = require 'os'
 redis = require 'redis'
 async = require 'async'
-debug = require('debug') 'clever-agents:workers/redis_lock'
+debug = require('debug') 'redis-reservation'
 
 module.exports = class ReserveResource
   constructor: (@by, @host, @port, @heartbeat_interval, @lock_ttl, @log=console.log) ->
@@ -11,12 +11,12 @@ module.exports = class ReserveResource
   lock: (resource, cb) ->
     @_init_redis()
 
-    reserve_key = "system-#{resource}"
+    reserve_key = "reservation-#{resource}"
     val = "#{os.hostname()}-#{@by}-#{process.pid}"
 
     async.waterfall [
       (cb_wf) => @_redis.get reserve_key, (err, val) =>  # log existing value for runtime debugging
-        @log "Existing system lock value for", reserve_key, val unless err?  # ignore errors
+        @log "Existing resource lock value for", reserve_key, val unless err?  # ignore errors
         cb_wf()
       (cb_wf) => @_redis.setnx reserve_key, val, (err, state) =>
         debug "RESERVE (err, state, reserve_key):", err, state, reserve_key
@@ -38,15 +38,15 @@ module.exports = class ReserveResource
     ], cb
 
   wait_until_lock: (resource, cb) ->
-    # waits until a lock on the specific system can be obtained
+    # waits until a lock on the specific resource can be obtained
     async.until(
       => @_reserve_key?
       (cb_u) => @lock resource, (err, lock_status) =>
         @log "Attempted to reserve #{resource}:", lock_status, err
         setTimeout cb_u, 1000, err  # try every second
       (err) =>
-        @log "failed to reserve system", err if err?
-        @log "RESERVE: Done waiting for system. reserve_state:", @_reserve_key?
+        @log "failed to reserve resource", err if err?
+        @log "RESERVE: Done waiting for resource. reserve_state:", @_reserve_key?
         return cb err, @_reserve_key?
     )
 
@@ -72,7 +72,7 @@ module.exports = class ReserveResource
       (reserved_by, cb_wf) =>
         unless reserved_by is @_reserve_val  # they stole the precious!!!
           # process.exit if _exit_on_throw as throw will be caught by domain err handler
-          throw new Error "Worker #{me} lost #{@_reserve_key} to #{reserved_by}"
+          throw new Error "Worker #{reserved_by} lost #{@_reserve_key} to #{reserved_by}"
         @_set_expiration cb_wf
     ], (err, expire_state) =>
       if err? or expire_state is 0
