@@ -106,7 +106,7 @@ describe "redis-reservation", ->
 
   it 'can wait for a lock', (done) ->
     setTimeout(=>
-      @redis.del 'resource-test_resource', -> return
+      @redis.del 'reservation-test_resource', -> return
     , 1000)
 
     @redis.set 'reservation-test_resource', 'MOCK', (err, resp) =>
@@ -117,7 +117,7 @@ describe "redis-reservation", ->
           assert.equal resp, null
           done()
 
-  it.only 'fails silently if resource is already reserved', (done) ->
+  it 'fails silently if resource is already reserved', (done) ->
     @redis.set 'reservation-test_resource', 'MOCK', (err, resp) =>
       test_worker = new LockWorker resource_id: 'test_resource', (err, resp) =>
         assert.equal err, 'no_reservations'
@@ -138,7 +138,7 @@ describe "redis-reservation", ->
       test_worker = new FailWorker resource_id: 'test_resource', (err, resp) =>
         assert.equal err.message, ":("
         assert.equal null, resp
-        @redis.get 'resource-test_resource', (err, resp) ->
+        @redis.get 'reservation-test_resource', (err, resp) ->
           assert.equal resp, 'MOCK'
           done()
 
