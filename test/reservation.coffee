@@ -11,8 +11,7 @@ class BaseWorker
     worker_domain = domain.create()
     worker_domain.on 'error', (err) =>
       console.log "FAILED: Exception caught by domain:", err.stack
-      setTimeout @_die, 1000, err if @_exit_on_throw
-      worker_domain.exit()
+      worker_domain.dispose()
     worker_domain.once 'error', (err) => @_complete err  # only call complete once
     @reservation = new ReserveResource @constructor._name,
       process.env.REDIS_HOST or null,
@@ -22,6 +21,7 @@ class BaseWorker
     setImmediate =>
       worker_domain.enter()
       @_run payload, (args...) =>
+        worker_domain.exit()
         @_complete args...
   _complete: (args...) ->
     @reservation.release (err) =>
