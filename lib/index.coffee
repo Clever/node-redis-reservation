@@ -18,23 +18,21 @@ module.exports = class ReserveResource
       (cb_wf) => @_redis.get reserve_key, (err, val) =>  # log existing value for runtime debugging
         @log "RESERVE: Existing resource lock value for", reserve_key, val unless err?  # ignore errors
         cb_wf()
-      (cb_wf) => @_redis.setnx reserve_key, val, (err, state) =>
+      (cb_wf) => @_redis.set [reserve_key, val, 'EX', @lock_ttl, 'NX'], (err, state) =>
         debug "RESERVE: (err, state, reserve_key):", err, state, reserve_key
         if err?
           @log "RESERVE: Failed to get lock for #{reserve_key} on #{val}"
           return cb_wf err
 
-        lock_status = if state? then (state is 1) else false
+        lock_status = if state? then (state is 1 or state is 'OK') else false
         @log("RESERVE:", val, "attempted to reserve", reserve_key, 'STATUS:', lock_status)
         return cb_wf err, false unless lock_status
 
         @_reserve_key = reserve_key
         @_reserve_val = val
-        @_set_expiration => 
-          @_heartbeat = setInterval @_ensure_reservation.bind(@), @heartbeat_interval
-          @_heartbeat.unref()  # don't keep loop alive just for reservation
-          cb_wf err, lock_status
-
+        @_heartbeat = setInterval @_ensure_reservation.bind(@), @heartbeat_interval
+        @_heartbeat.unref()  # don't keep loop alive just for reservation
+        cb_wf err, lock_status
     ], cb
 
   wait_until_lock: (resource, cb) ->
@@ -82,7 +80,7 @@ module.exports = class ReserveResource
     return setImmediate cb unless @_reserve_key?  # nothing reserved here
     @_init_redis()
     
-    # set expiration to 30 min
+    # set expiration to lock_ttl
     @_redis.expire @_reserve_key, @lock_ttl, (err, state) =>
       @log "RESERVE: Failed to set expiration for #{@_reserve_key} after reservation", err if err?
       return cb null, (state is 1)
