@@ -68,9 +68,10 @@ module.exports = class ReserveResource
     async.waterfall [
       (cb_wf) => @_redis.get @_reserve_key, cb_wf
       (reserved_by, cb_wf) =>
+        unless reserved_by?  # we losts it
+          throw new Error "Worker #{@_reserve_val} lost reservation for #{@_reserve_key}"
         unless reserved_by is @_reserve_val  # they stole the precious!!!
-          # process.exit if _exit_on_throw as throw will be caught by domain err handler
-          throw new Error "Worker #{reserved_by} lost #{@_reserve_key} to #{reserved_by}"
+          throw new Error "Worker #{@_reserve_val} lost #{@_reserve_key} to #{reserved_by}"
         @_set_expiration cb_wf
     ], (err, expire_state) =>
       if err? or expire_state is 0
