@@ -4,6 +4,10 @@ redis = require 'redis'
 async = require 'async'
 debug = require('debug') 'redis-reservation'
 
+create_redis_client = _.memoize (host, port) ->
+  redis.createClient port, host, { retry_max_delay:100, connect_timeout: 500, max_attempts: 10 }
+, (host, port) -> "#{host}:#{port}"
+
 module.exports = class ReserveResource
   constructor: (@by, @host, @port, @heartbeat_interval, @lock_ttl, @log=console.log) ->
     return
@@ -80,7 +84,7 @@ module.exports = class ReserveResource
   _set_expiration: (cb) ->
     return setImmediate cb unless @_reserve_key?  # nothing reserved here
     @_init_redis()
-    
+
     # set expiration to lock_ttl
     @_redis.expire @_reserve_key, @lock_ttl, (err, state) =>
       @log "RESERVE: Failed to set expiration for #{@_reserve_key} after reservation", err if err?
@@ -90,7 +94,7 @@ module.exports = class ReserveResource
     # by default client tries to connect forever, fail after half a sec so worker can continue
     # will try again on next job
     unless @_redis?
-      @_redis = redis.createClient @port, @host, { retry_max_delay:100, connect_timeout: 500, max_attempts: 10 }
+      @_redis = create_redis_client @host, @port
       @_redis.once 'error', (err) =>
         @log "RESERVE: Error connecting to REDIS: #{@host}:#{@port}.", err
         throw err
