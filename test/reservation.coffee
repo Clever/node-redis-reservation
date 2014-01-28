@@ -36,23 +36,23 @@ class BaseWorker
 class LockWorker extends BaseWorker
   @_name: 'test_worker'
   _run: (payload, cb) ->
-    console.log "running test_worker"
-    console.log "RESERVE", @reserve
+    console.log 'running test_worker'
+    console.log 'RESERVE', @reserve
     @reservation.lock payload.resource_id, (err, state) =>
-      return cb "no_reservations" unless state
-      return cb null, "whostheboss.iam"
+      return cb new Error 'no reservations' unless state
+      cb()
 
 class FreeWorker extends BaseWorker
   @_name: 'free_worker'
   _run: (payload, cb) ->
-    cb null, "always_done"
+    cb()
 
 class FailWorker extends BaseWorker
   @_name: 'fail_worker'
   _exit_on_throw: false
   _run: (payload, cb) =>
-    throw new Error(":(")
-    cb("done_after_error")
+    throw new Error ':('
+    cb()
 
 class SlowWorker extends BaseWorker
   @_name: 'slow_worker'
@@ -63,8 +63,8 @@ class SlowWorker extends BaseWorker
     console.log "running slow_worker"
     @reservation.lock payload.resource_id, (err, state) =>
       setTimeout((state) ->
-        return cb "no_reservations" unless state
-        return cb null, "whostheboss.iam"
+        return cb new Error 'no reservations' unless state
+        cb()
       , 2000
       , state)
 
@@ -75,23 +75,21 @@ class WaitWorker extends BaseWorker
   _run: (payload, cb) ->
     console.log "running wait_worker"
     @reservation.wait_until_lock payload.resource_id, (err, state) =>
-      return cb "no_reservations" unless state
-      return cb null, 'patience_is_bitter_but_fruit_is_sweet'
+      return cb new Error 'no reservations' unless state
+      cb()
 
 describe "redis-reservation", ->
 
   before (done) ->
-    @redis = redis.createClient()  # localhost
-    #@redis.select 3
+    @redis = redis.createClient()
     done()
 
   beforeEach (done) ->
     @redis.flushall done
 
   it 'can reserve and release a lock', (done) ->
-    test_worker = new LockWorker resource_id: 'test_resource', (err, resp) =>
+    test_worker = new LockWorker resource_id: 'test_resource', (err) =>
       assert.ifError err
-      assert.equal resp, 'whostheboss.iam'
       @redis.get 'reservation-test_resource', (err, resp) ->
         assert.equal resp, null
         done()
@@ -99,7 +97,6 @@ describe "redis-reservation", ->
   it 'holds a lock while running', (done) ->
     test_worker = new SlowWorker resource_id: 'test_resource', (err, resp) =>
       assert.ifError err
-      assert.equal resp, 'whostheboss.iam'
       @redis.get 'resource-test_resource', (err, resp) ->
         assert.equal resp, null
         done()
@@ -112,7 +109,6 @@ describe "redis-reservation", ->
     @redis.set 'reservation-test_resource', 'MOCK', (err, resp) =>
       test_worker = new WaitWorker resource_id: 'test_resource', (err, resp) =>
         assert.ifError err
-        assert.equal resp, 'patience_is_bitter_but_fruit_is_sweet'
         @redis.get 'reservation-test_resource', (err, resp) ->
           assert.equal resp, null
           done()
@@ -120,7 +116,7 @@ describe "redis-reservation", ->
   it 'fails silently if resource is already reserved', (done) ->
     @redis.set 'reservation-test_resource', 'MOCK', (err, resp) =>
       test_worker = new LockWorker resource_id: 'test_resource', (err, resp) =>
-        assert.equal err, 'no_reservations'
+        assert.equal err?.message, 'no reservations'
         @redis.get 'reservation-test_resource', (err, resp) ->
           assert.equal resp, 'MOCK'
           done()
@@ -128,7 +124,7 @@ describe "redis-reservation", ->
   it 'does not interfere for workers without reservations', (done) ->
     @redis.set 'reservation-test_resource', 'MOCK', (err, resp) =>
       test_worker = new FreeWorker resource_id: 'test_resource', (err, resp) =>
-        assert.equal resp, 'always_done'
+        assert.ifError err
         @redis.get 'reservation-test_resource', (err, resp) ->
           assert.equal resp, 'MOCK'
           done()
