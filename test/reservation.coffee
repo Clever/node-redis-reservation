@@ -90,7 +90,7 @@ describe "redis-reservation", ->
 
   it 'can reserve and release a lock', (done) ->
     test_worker = new LockWorker resource_id: 'test_resource', (err, resp) =>
-      assert.equal null, err
+      assert.ifError err
       assert.equal resp, 'whostheboss.iam'
       @redis.get 'reservation-test_resource', (err, resp) ->
         assert.equal resp, null
@@ -98,7 +98,7 @@ describe "redis-reservation", ->
 
   it 'holds a lock while running', (done) ->
     test_worker = new SlowWorker resource_id: 'test_resource', (err, resp) =>
-      assert.equal null, err
+      assert.ifError err
       assert.equal resp, 'whostheboss.iam'
       @redis.get 'resource-test_resource', (err, resp) ->
         assert.equal resp, null
@@ -111,7 +111,7 @@ describe "redis-reservation", ->
 
     @redis.set 'reservation-test_resource', 'MOCK', (err, resp) =>
       test_worker = new WaitWorker resource_id: 'test_resource', (err, resp) =>
-        assert.equal null, err
+        assert.ifError err
         assert.equal resp, 'patience_is_bitter_but_fruit_is_sweet'
         @redis.get 'reservation-test_resource', (err, resp) ->
           assert.equal resp, null
@@ -132,7 +132,7 @@ describe "redis-reservation", ->
         @redis.get 'reservation-test_resource', (err, resp) ->
           assert.equal resp, 'MOCK'
           done()
-  
+
   it 'handles failing jobs', (done) ->
     @redis.set 'reservation-test_resource', 'MOCK', (err, resp) =>
       test_worker = new FailWorker resource_id: 'test_resource', (err, resp) =>

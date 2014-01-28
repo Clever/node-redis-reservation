@@ -3,98 +3,80 @@ os    = require 'os'
 redis = require 'redis'
 async = require 'async'
 debug = require('debug') 'redis-reservation'
+Resource = require './resource'
 
 create_redis_client = _.memoize (host, port) ->
   redis.createClient port, host, { retry_max_delay:100, connect_timeout: 500, max_attempts: 10 }
 , (host, port) -> "#{host}:#{port}"
 
-module.exports = class ReserveResource
+module.exports = class ReserveManager
   constructor: (@by, @host, @port, @heartbeat_interval, @lock_ttl, @log=console.log) ->
-    return
+    @_resources = []
+    @_heartbeat = setInterval @_ensure_reservation, @heartbeat_interval
+    @_heartbeat.unref() # Don't keep loop alive just for reservation
 
-  lock: (resource, cb) ->
-    @_init_redis()
-
+  create_resource: (resource) =>
     reserve_key = "reservation-#{resource}"
-    val = "#{os.hostname()}-#{@by}-#{process.pid}"
+    reserve_val = "#{os.hostname()}-#{@by}-#{process.pid}"
+    @_resources.push new Resource @_redis, reserve_key, reserve_val, @lock_ttl
+    _(@_resources).last()
 
-    async.waterfall [
-      (cb_wf) => @_redis.get reserve_key, (err, val) =>  # log existing value for runtime debugging
-        @log "RESERVE: Existing resource lock value for", reserve_key, val unless err?  # ignore errors
-        cb_wf()
-      (cb_wf) => @_redis.set [reserve_key, val, 'EX', @lock_ttl, 'NX'], (err, state) =>
-        debug "RESERVE: (err, state, reserve_key):", err, state, reserve_key
-        if err?
-          @log "RESERVE: Failed to get lock for #{reserve_key} on #{val}"
-          return cb_wf err
+  lock: (resource, cb) =>
+    @_init_redis()
+    resource = @create_resource resource
+    resource.lock @lock_ttl, (err, lock_status) =>
+      if err
+        @log "RESERVE: Failed to get lock for #{resource.reserve_key} on #{resource.reserve_val}"
+        return cb err
+      @log "RESERVE: #{resource.reserve_val} attempted to reserve #{resource.reserve_key}. STATUS: #{lock_status}"
+      cb null, lock_status
 
-        lock_status = if state? then (state is 1 or state is 'OK') else false
-        @log("RESERVE:", val, "attempted to reserve", reserve_key, 'STATUS:', lock_status)
-        return cb_wf err, false unless lock_status
-
-        @_reserve_key = reserve_key
-        @_reserve_val = val
-        @_heartbeat = setInterval @_ensure_reservation.bind(@), @heartbeat_interval
-        @_heartbeat.unref()  # don't keep loop alive just for reservation
-        cb_wf err, lock_status
-    ], cb
-
-  wait_until_lock: (resource, cb) ->
-    # waits until a lock on the specific resource can be obtained
+  # Waits until a lock on the specific resource can be obtained
+  wait_until_lock: (resource, cb) =>
+    @_init_redis()
+    resource_to_lock = @create_resource resource
     async.until(
-      => @_reserve_key?
-      (cb_u) => @lock resource, (err, lock_status) =>
-        @log "RESERVE: Attempted to reserve #{resource}:", lock_status, err
-        setTimeout cb_u, 1000, err  # try every second
+      => resource_to_lock.locked
+      (cb_u) =>
+        resource_to_lock.lock @lock_ttl, (err, lock_status) =>
+          @log "RESERVE: Attempted to reserve #{resource}:", lock_status, err
+          setTimeout cb_u, 1000, err  # try every second
       (err) =>
         @log "RESERVE: Failed to reserve resource", err if err?
-        @log "RESERVE: Done waiting for resource. reserve_state:", @_reserve_key?
-        return cb err, @_reserve_key?
+        @log "RESERVE: Done waiting for resource. reserve_state:", resource_to_lock.reserve_key
+        cb err, resource_to_lock.locked
     )
 
-  release: (cb) ->
-    return setImmediate cb unless @_reserve_key?  # nothing reserved here
-
-    clearInterval @_heartbeat if @_heartbeat? # we're done here, no more heartbeats
+  release: (cb) =>
     @_init_redis()
-    @_redis.del @_reserve_key, (err, state) =>
-      @log "RESERVE: Failed to RELEASE LOCK for #{@_reserve_key} on #{@_reserve_val}" if err?
-      @log 'RESERVE: Released', @_reserve_key unless err?
-      delete @_reserve_key  # loose the lock
-      delete @_reserve_val
-      cb err, state or !err?
+    clearInterval @_heartbeat if @_heartbeat? # We're done here, no more heartbeats
+    async.each @_resources, (resource, cb_e) =>
+      resource.release (err, state) =>
+        if err
+          @log "RESERVE: Failed to RELEASE LOCK for #{resource.reserve_key} on #{resource.reserve_val}"
+        else
+          @log 'RESERVE: Released', resource.reserve_key
+        cb_e err
+    , cb
 
-  _ensure_reservation: ->
-    # make sure to hold the lock while running
-    return unless @_reserve_key  # nothing reserved here
-    @log "#{@_reserve_val} is extending reservation for #{@_reserve_key}, by #{@lock_ttl}secs"
+  _ensure_reservation: =>
+    async.each @_resources, (resource, cb_e) =>
+      @log "#{resource.reserve_val} is extending reservation for #{resource.reserve_key}, by #{@lock_ttl}secs"
+      resource.ensure (err) =>
+        # Any errors from ensuring we still have the reservation should cause a graceful crash
+        throw err if err
+        resource.extend @lock_ttl, (err, expire_success) =>
+          if err or not expire_success
+            @log "RESERVE: Failed to ensure reservation, will try again in 10 minutes. expire_success:", expire_success, err
+            cb_e()
+    , (err) ->
+      # Impossible for there to be an error here (either thrown or no error)
 
-    async.waterfall [
-      (cb_wf) => @_redis.get @_reserve_key, cb_wf
-      (reserved_by, cb_wf) =>
-        unless reserved_by?  # we losts it
-          throw new Error "Worker #{@_reserve_val} lost reservation for #{@_reserve_key}"
-        unless reserved_by is @_reserve_val  # they stole the precious!!!
-          throw new Error "Worker #{@_reserve_val} lost #{@_reserve_key} to #{reserved_by}"
-        @_set_expiration cb_wf
-    ], (err, expire_state) =>
-      if err? or expire_state is 0
-        @log "RESERVE: Failed to ensure reservation, will try again in 10 minutes. expire_status:", expire_state, err
-
-  _set_expiration: (cb) ->
-    return setImmediate cb unless @_reserve_key?  # nothing reserved here
-    @_init_redis()
-
-    # set expiration to lock_ttl
-    @_redis.expire @_reserve_key, @lock_ttl, (err, state) =>
-      @log "RESERVE: Failed to set expiration for #{@_reserve_key} after reservation", err if err?
-      return cb null, (state is 1)
-
-  _init_redis: ->
+  _init_redis: =>
     # by default client tries to connect forever, fail after half a sec so worker can continue
     # will try again on next job
-    unless @_redis?
-      @_redis = create_redis_client @host, @port
-      @_redis.once 'error', (err) =>
-        @log "RESERVE: Error connecting to REDIS: #{@host}:#{@port}.", err
-        throw err
+    return if @_redis
+    @_redis = create_redis_client @host, @port
+    @_redis.once 'error', (err) =>
+      @log "RESERVE: Error connecting to REDIS: #{@host}:#{@port}.", err
+      throw err
