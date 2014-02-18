@@ -14,8 +14,8 @@ class BaseWorker
       worker_domain.dispose()
     worker_domain.once 'error', (err) => @_complete err  # only call complete once
     @reservation = new ReserveResource @constructor._name,
-      process.env.REDIS_HOST or null,
-      process.env.REDIS_PORT or null,
+      process.env.REDIS_HOST,
+      process.env.REDIS_PORT,
       @_hearbeat_interval,
       @_lock_ttl
     setImmediate =>
@@ -30,8 +30,6 @@ class BaseWorker
   _run: (payload, cb) -> cb new Error "must implement _run"
   _hearbeat_interval: 10*60*1000  # 10 minutes in milliseconds for resource reservation
   _lock_ttl: 30*60  # 30 minutes in seconds for resource reservation
-  _exit_on_throw: true  # process.exit if errors are thrown, or resources are stolen
-  @_check_name: -> throw new Error "must define _name" unless @_name
 
 class LockWorker extends BaseWorker
   @_name: 'test_worker'
@@ -49,14 +47,12 @@ class FreeWorker extends BaseWorker
 
 class FailWorker extends BaseWorker
   @_name: 'fail_worker'
-  _exit_on_throw: false
   _run: (payload, cb) =>
     throw new Error(":(")
     cb("done_after_error")
 
 class SlowWorker extends BaseWorker
   @_name: 'slow_worker'
-  _exit_on_throw: false
   _hearbeat_interval: 500
   _lock_ttl: 1
   _run: (payload, cb) ->
@@ -81,7 +77,7 @@ class WaitWorker extends BaseWorker
 describe "redis-reservation", ->
 
   before (done) ->
-    @redis = redis.createClient()  # localhost
+    @redis = redis.createClient(process.env.REDIS_PORT, process.env.REDIS_HOST)
     #@redis.select 3
     done()
 
@@ -132,7 +128,7 @@ describe "redis-reservation", ->
         @redis.get 'reservation-test_resource', (err, resp) ->
           assert.equal resp, 'MOCK'
           done()
-  
+
   it 'handles failing jobs', (done) ->
     @redis.set 'reservation-test_resource', 'MOCK', (err, resp) =>
       test_worker = new FailWorker resource_id: 'test_resource', (err, resp) =>
