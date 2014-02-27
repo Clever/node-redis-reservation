@@ -3,3 +3,7 @@ script:
   - ./test_drone.sh
 services:
   - redis:2.6
+notify:
+  email:
+    recipients:
+      - drone@clever.com
