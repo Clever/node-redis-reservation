@@ -74,10 +74,10 @@ class WaitWorker extends BaseWorker
       return cb null, 'patience_is_bitter_but_fruit_is_sweet'
 
 describe 'ReserveResource', ->
-  it "doesn't leak memory", ->
-    # Essentially just asserting that we can instantiate 10 milliion ReserveResources without
-    # running out of memory, so not quite the same as actuall testing for memory leaks, but good
-    # enough.
+  it "allows you to create a bunch of reservations", ->
+    # Reasons it might fail:
+    #  * memory leaks
+    #  * connection limits
     for i in [0...10000000]
       resource = new ReserveResource 'some worker', process.env.REDIS_HOST, process.env.REDIS_PORT
       resource._init_redis()
