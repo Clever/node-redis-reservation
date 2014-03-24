@@ -9,7 +9,7 @@ ReserveResource = require "#{__dirname}/../lib/index"
 class BaseWorker
   constructor: (payload, @cb) ->
     worker_domain = domain.create()
-    worker_domain.on 'error', (err) =>
+    worker_domain.on 'error', (err) ->
       console.log "FAILED: Exception caught by domain:", err.stack
       worker_domain.dispose()
     worker_domain.once 'error', (err) => @_complete err  # only call complete once
@@ -36,7 +36,7 @@ class LockWorker extends BaseWorker
   _run: (payload, cb) ->
     console.log "running test_worker"
     console.log "RESERVE", @reserve
-    @reservation.lock payload.resource_id, (err, state) =>
+    @reservation.lock payload.resource_id, (err, state) ->
       return cb "no_reservations" unless state
       return cb null, "whostheboss.iam"
 
@@ -47,9 +47,8 @@ class FreeWorker extends BaseWorker
 
 class FailWorker extends BaseWorker
   @_name: 'fail_worker'
-  _run: (payload, cb) =>
+  _run: (payload, cb) ->
     throw new Error(":(")
-    cb("done_after_error")
 
 class SlowWorker extends BaseWorker
   @_name: 'slow_worker'
@@ -57,7 +56,7 @@ class SlowWorker extends BaseWorker
   _lock_ttl: 1
   _run: (payload, cb) ->
     console.log "running slow_worker"
-    @reservation.lock payload.resource_id, (err, state) =>
+    @reservation.lock payload.resource_id, (err, state) ->
       setTimeout((state) ->
         return cb "no_reservations" unless state
         return cb null, "whostheboss.iam"
@@ -70,7 +69,7 @@ class WaitWorker extends BaseWorker
   _lock_ttl: 1
   _run: (payload, cb) ->
     console.log "running wait_worker"
-    @reservation.wait_until_lock payload.resource_id, (err, state) =>
+    @reservation.wait_until_lock payload.resource_id, (err, state) ->
       return cb "no_reservations" unless state
       return cb null, 'patience_is_bitter_but_fruit_is_sweet'
 
@@ -150,7 +149,7 @@ describe 'redis-reservation', ->
   it 'fails on no redis', (done) ->
     process.env.REDIS_HOST = 'localhost'
     process.env.REDIS_PORT = 6666  # incorrect port
-    test_worker = new SlowWorker resource_id: 'test_resource', (err, resp) =>
+    test_worker = new SlowWorker resource_id: 'test_resource', (err, resp) ->
       console.log "ERR", err
       assert.equal err.message, "Redis connection to localhost:6666 failed - connect ECONNREFUSED"
       setTimeout done, 1000
