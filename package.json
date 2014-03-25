@@ -21,7 +21,7 @@
     "url": "https://github.com/Clever/redis-reservation/issues"
   },
   "dependencies": {
-    "redis": "~0.8.4",
+    "redis": "git+https://github.com/Clever/node_redis#v0.10.1+keepalive",
     "underscore": "~1.5.2",
     "async": "~0.2.9",
     "debug": "~0.7.2"
