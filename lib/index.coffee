@@ -5,7 +5,11 @@ async = require 'async'
 debug = require('debug') 'redis-reservation'
 
 create_redis_client = _.memoize (host, port, log) ->
-  _redis = redis.createClient port, host, { retry_max_delay: 100, connect_timeout: 500, max_attempts: 10 }
+  _redis = redis.createClient port, host,
+    retry_max_delay: 100
+    connect_timeout: 500
+    max_attempts: 10
+    socket_keepalive: true
   # Client emits an error every time it tries to reconnect and fails. Only emit an error once.
   _redis.once 'error', (err) ->
     log "RESERVE: Error connecting to REDIS: #{host}:#{port}.", err
