@@ -20,6 +20,7 @@ create_redis_client = _.memoize (host, port, log) ->
 
 module.exports = class ReserveResource
   constructor: (@by, @host, @port, @heartbeat_interval, @lock_ttl, @log=console.log) ->
+    @_lost_reservation = false
     return
 
   lock: (resource, cb) ->
@@ -64,6 +65,7 @@ module.exports = class ReserveResource
 
   release: (cb) ->
     return setImmediate cb unless @_reserve_key?  # nothing reserved here
+    return setImmediate cb if @_lost_reservation
 
     clearInterval @_heartbeat if @_heartbeat? # we're done here, no more heartbeats
     @_init_redis()
@@ -83,8 +85,10 @@ module.exports = class ReserveResource
       (cb_wf) => @_redis.get @_reserve_key, cb_wf
       (reserved_by, cb_wf) =>
         unless reserved_by?  # we losts it
+          @_lost_reservation = true
           throw new Error "Worker #{@_reserve_val} lost reservation for #{@_reserve_key}"
         unless reserved_by is @_reserve_val  # they stole the precious!!!
+          @_lost_reservation = true
           throw new Error "Worker #{@_reserve_val} lost #{@_reserve_key} to #{reserved_by}"
         @_set_expiration cb_wf
     ], (err, expire_state) =>
