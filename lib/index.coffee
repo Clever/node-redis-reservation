@@ -76,7 +76,11 @@ module.exports = class ReserveResource
       delete @_reserve_val
       cb err, state or !err?
 
-  _ensure_reservation: ->
+  _ensure_reservation: -> @ensure_reservation()
+  # If ensure_reservation is called without a callback (e.g. when we run it on an interval, in the
+  # background), it throws any errors that receives. Otherwise, it passes them to the callback.
+  ensure_reservation: (cb) ->
+    cb ?= (err) -> throw err if err?
     # make sure to hold the lock while running
     return unless @_reserve_key  # nothing reserved here
     @log "#{@_reserve_val} is extending reservation for #{@_reserve_key}, by #{@lock_ttl}secs"
@@ -86,14 +90,16 @@ module.exports = class ReserveResource
       (reserved_by, cb_wf) =>
         unless reserved_by?  # we losts it
           @_lost_reservation = true
-          throw new Error "Worker #{@_reserve_val} lost reservation for #{@_reserve_key}"
+          return cb_wf new Error "Worker #{@_reserve_val} lost reservation for #{@_reserve_key}"
         unless reserved_by is @_reserve_val  # they stole the precious!!!
           @_lost_reservation = true
-          throw new Error "Worker #{@_reserve_val} lost #{@_reserve_key} to #{reserved_by}"
+          return cb_wf new Error "Worker #{@_reserve_val} lost #{@_reserve_key} to #{reserved_by}"
         @_set_expiration cb_wf
     ], (err, expire_state) =>
-      if err? or expire_state is 0
-        @log "RESERVE: Failed to ensure reservation, will try again in 10 minutes. expire_status:", expire_state, err
+      return cb err if err
+      if expire_state is 0
+        return cb new Error "RESERVE: Failed to ensure reservation. expire_status:", expire_state
+      cb()
 
   _set_expiration: (cb) ->
     return setImmediate cb unless @_reserve_key?  # nothing reserved here
