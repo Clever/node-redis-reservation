@@ -29,5 +29,8 @@
   "devDependencies": {
     "coffee-script": "~1.6.3",
     "mocha": "~1.13.0"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org"
   }
 }
