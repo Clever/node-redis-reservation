@@ -4,22 +4,25 @@ redis = require 'redis'
 async = require 'async'
 debug = require('debug') 'redis-reservation'
 
-create_redis_client = _.memoize (host, port, log) ->
+create_redis_client = _.memoize (host, port, password, log) ->
   _redis = redis.createClient port, host,
     retry_max_delay: 100
     connect_timeout: 500
     max_attempts: 10
     socket_keepalive: true
+
+  _redis.auth password if password
+
   # Client emits an error every time it tries to reconnect and fails. Only emit an error once.
   _redis.once 'error', (err) ->
     log "RESERVE: Error connecting to REDIS: #{host}:#{port}.", err
     throw err
   _redis
 
-, (host, port) -> "#{host}:#{port}"
+, (host, port, password) -> "#{host}:#{port}:#{password}"
 
 module.exports = class ReserveResource
-  constructor: (@by, @host, @port, @heartbeat_interval, @lock_ttl, @log=console.log) ->
+  constructor: (@by, @host, @port, @heartbeat_interval, @lock_ttl, @log=console.log, @password='') ->
     @_lost_reservation = false
     return
 
@@ -111,4 +114,4 @@ module.exports = class ReserveResource
       return cb null, (state is 1)
 
   _init_redis: ->
-    @_redis = create_redis_client @host, @port, @log.bind(@) unless @_redis?
+    @_redis = create_redis_client @host, @port, @password, @log.bind(@) unless @_redis?
