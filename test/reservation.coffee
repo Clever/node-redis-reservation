@@ -40,6 +40,16 @@ class LockWorker extends BaseWorker
       return cb "no_reservations" unless state
       return cb null, "whostheboss.iam"
 
+class PasswordWorker extends BaseWorker
+  @_name: 'redis_password_worker'
+  _run: (payload, cb) ->
+    console.log "running redis_password_worker"
+    console.log "RESERVE", @reserve
+    @reservation.password = payload.password
+    @reservation.lock payload.resource_id, (err, state) ->
+      return cb "no_reservations" unless state
+      return cb null, "whostheboss.iam"
+
 class FreeWorker extends BaseWorker
   @_name: 'free_worker'
   _run: (payload, cb) ->
@@ -94,6 +104,20 @@ describe 'redis-reservation', ->
 
   it 'can reserve and release a lock', (done) ->
     test_worker = new LockWorker resource_id: 'test_resource', (err, resp) =>
+      assert.equal null, err
+      assert.equal resp, 'whostheboss.iam'
+      @redis.get 'reservation-test_resource', (err, resp) ->
+        assert.equal resp, null
+        done()
+
+  it 'can reserve and release a lock with redis password', (done) ->
+    @redis.config 'set', 'requirepass', '12345'
+    @redis.auth '12345'
+
+    payload = resource_id: 'test_resource', password: '12345'
+    test_worker = new PasswordWorker payload, (err, resp) =>
+      @redis.config 'set', 'requirepass', ''
+
       assert.equal null, err
       assert.equal resp, 'whostheboss.iam'
       @redis.get 'reservation-test_resource', (err, resp) ->
