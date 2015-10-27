@@ -22,7 +22,7 @@ create_redis_client = _.memoize (host, port, password, log) ->
 , (host, port, password) -> "#{host}:#{port}:#{password}"
 
 module.exports = class ReserveResource
-  constructor: (@by, @host, @port, @heartbeat_interval, @lock_ttl, @log=console.log, @password='') ->
+  constructor: (@by, @host, @port, @heartbeat_interval, @lock_ttl, @log=console.error, @password='') ->
     @_lost_reservation = false
     return
 
