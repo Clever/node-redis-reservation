@@ -1,10 +1,10 @@
-_     = require 'underscore'
-os    = require 'os'
-redis = require 'redis'
-async = require 'async'
-debug = require('debug') 'redis-reservation'
+_      = require 'underscore'
+os     = require 'os'
+redis  = require 'redis'
+async  = require 'async'
+kayvee = require 'kayvee'
 
-create_redis_client = _.memoize (host, port, password, log) ->
+create_redis_client = _.memoize (host, port, password, logger) ->
   _redis = redis.createClient port, host,
     retry_max_delay: 100
     connect_timeout: 500
@@ -15,35 +15,38 @@ create_redis_client = _.memoize (host, port, password, log) ->
 
   # Client emits an error every time it tries to reconnect and fails. Only emit an error once.
   _redis.once 'error', (err) ->
-    log "RESERVE: Error connecting to REDIS: #{host}:#{port}.", err
+    logger.errorD "redis-error", { host, port, err }
     throw err
   _redis
 
 , (host, port, password) -> "#{host}:#{port}:#{password}"
 
 module.exports = class ReserveResource
-  constructor: (@by, @host, @port, @heartbeat_interval, @lock_ttl, @log=console.error, @password='') ->
+  constructor: (@by, @host, @port, @heartbeat_interval, @lock_ttl, @metadata={}, @password='') ->
     @_lost_reservation = false
+    @identifier = process.env.JOB_ID or process.pid
+    @logger = new kayvee.logger(@by)
+    @logger.globals.via = "node-redis-reservation"
+    @logger.globals = _.extend {}, @logger.globals, @metadata
     return
 
   lock: (resource, cb) ->
     @_init_redis()
 
     reserve_key = "reservation-#{resource}"
-    val = "#{os.hostname()}-#{@by}-#{process.pid}"
+    val = "#{@by}-#{@identifier}"
 
     async.waterfall [
       (cb_wf) => @_redis.get reserve_key, (err, val) =>  # log existing value for runtime debugging
-        @log "RESERVE: Existing resource lock value for", reserve_key, val unless err?  # ignore errors
+        @logger.infoD "reservation-exists", { key: reserve_key, resource } unless err?
         cb_wf()
       (cb_wf) => @_redis.set [reserve_key, val, 'EX', @lock_ttl, 'NX'], (err, state) =>
-        debug "RESERVE: (err, state, reserve_key):", err, state, reserve_key
         if err?
-          @log "RESERVE: Failed to get lock for #{reserve_key} on #{val}"
+          @logger.infoD "reservation-failed", { resource, key: reserve_key, err }
           return cb_wf err
 
         lock_status = if state? then (state is 1 or state is 'OK') else false
-        @log("RESERVE:", val, "attempted to reserve", reserve_key, 'STATUS:', lock_status)
+        @logger.infoD "reservation-attempted", { resource, lock_status, key: reserve_key }
         return cb_wf err, false unless lock_status
 
         @_reserve_key = reserve_key
@@ -58,11 +61,11 @@ module.exports = class ReserveResource
     async.until(
       => @_reserve_key?
       (cb_u) => @lock resource, (err, lock_status) =>
-        @log "RESERVE: Attempted to reserve #{resource}:", lock_status, err
+        @logger.infoD "reservation-attempt", { resource, lock_status }
         setTimeout cb_u, 1000, err  # try every second
       (err) =>
-        @log "RESERVE: Failed to reserve resource", err if err?
-        @log "RESERVE: Done waiting for resource. reserve_state:", @_reserve_key?
+        @logger.errorD "reservation-failed", { resource, err, val } if err?
+        @logger.infoD "reservation-acquired", { resource, key: @_reserve_key }
         return cb err, @_reserve_key?
     )
 
@@ -73,9 +76,9 @@ module.exports = class ReserveResource
     clearInterval @_heartbeat if @_heartbeat? # we're done here, no more heartbeats
     @_init_redis()
     @_redis.del @_reserve_key, (err, state) =>
-      @log "RESERVE: Failed to RELEASE LOCK for #{@_reserve_key} on #{@_reserve_val}" if err?
-      @log 'RESERVE: Released', @_reserve_key unless err?
-      delete @_reserve_key  # loose the lock
+      @logger.errorD "reservation-release-failed", { key: @_reserve_key, val: @_reserve_val } if err?
+      @logger.infoD "reservation-released", { key: @_reserve_key } unless err?
+      delete @_reserve_key  # lose the lock
       delete @_reserve_val
       cb err, state or !err?
 
@@ -86,8 +89,7 @@ module.exports = class ReserveResource
     cb ?= (err) -> throw err if err?
     # make sure to hold the lock while running
     return unless @_reserve_key  # nothing reserved here
-    @log "#{@_reserve_val} is extending reservation for #{@_reserve_key}, by #{@lock_ttl}secs"
-
+    @logger.infoD "reservation-extended", { key: @_reserve_key, duration: "#{@lock_ttl}s", val: @_reserve_val }
     async.waterfall [
       (cb_wf) => @_redis.get @_reserve_key, cb_wf
       (reserved_by, cb_wf) =>
@@ -110,8 +112,8 @@ module.exports = class ReserveResource
 
     # set expiration to lock_ttl
     @_redis.expire @_reserve_key, @lock_ttl, (err, state) =>
-      @log "RESERVE: Failed to set expiration for #{@_reserve_key} after reservation", err if err?
+      @logger.errorD "expire-set-failed", { err, key: @_reserve_key } if err?
       return cb null, (state is 1)
 
   _init_redis: ->
-    @_redis = create_redis_client @host, @port, @password, @log.bind(@) unless @_redis?
+    @_redis = create_redis_client @host, @port, @password, @logger unless @_redis?
