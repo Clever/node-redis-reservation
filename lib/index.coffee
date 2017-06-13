@@ -22,31 +22,31 @@ create_redis_client = _.memoize (host, port, password, logger) ->
 , (host, port, password) -> "#{host}:#{port}:#{password}"
 
 module.exports = class ReserveResource
-  constructor: (@by, @host, @port, @heartbeat_interval, @lock_ttl, @password='') ->
+  constructor: (@by, @host, @port, @heartbeat_interval, @lock_ttl, @metadata={}, @password='') ->
     @_lost_reservation = false
-    @identifer = process.env.JOB_ID or process.pid
+    @identifier = process.env.JOB_ID or process.pid
     @logger = new kayvee.logger(@by)
-    @logger.globals.job_id = process.env.JOB_ID
     @logger.globals.via = "node-redis-reservation"
+    @logger.globals = _.extend {}, @logger.globals, @metadata
     return
 
-  lock: (system_id, cb) ->
+  lock: (resource, cb) ->
     @_init_redis()
 
-    reserve_key = "reservation-#{system_id}"
-    val = "#{@by}-#{@identifer}"
+    reserve_key = "reservation-#{resource}"
+    val = "#{@by}-#{@identifier}"
 
     async.waterfall [
       (cb_wf) => @_redis.get reserve_key, (err, val) =>  # log existing value for runtime debugging
-        @logger.infoD "reservation-existing", { key: reserve_key, system_id } unless err?
+        @logger.infoD "reservation-exists", { key: reserve_key, resource } unless err?
         cb_wf()
       (cb_wf) => @_redis.set [reserve_key, val, 'EX', @lock_ttl, 'NX'], (err, state) =>
         if err?
-          @logger.infoD "reservation-failed", { system_id, key: reserve_key }
+          @logger.infoD "reservation-failed", { resource, key: reserve_key, err }
           return cb_wf err
 
         lock_status = if state? then (state is 1 or state is 'OK') else false
-        @logger.infoD "reservation-attempted", { system_id, lock_status, key: reserve_key }
+        @logger.infoD "reservation-attempted", { resource, lock_status, key: reserve_key }
         return cb_wf err, false unless lock_status
 
         @_reserve_key = reserve_key
@@ -56,16 +56,16 @@ module.exports = class ReserveResource
         cb_wf err, lock_status
     ], cb
 
-  wait_until_lock: (system_id, cb) ->
-    # waits until a lock on the specific system_id can be obtained
+  wait_until_lock: (resource, cb) ->
+    # waits until a lock on the specific resource can be obtained
     async.until(
       => @_reserve_key?
-      (cb_u) => @lock system_id, (err, lock_status) =>
-        @logger.infoD "reservation-attempt", { system_id, lock_status }
+      (cb_u) => @lock resource, (err, lock_status) =>
+        @logger.infoD "reservation-attempt", { resource, lock_status }
         setTimeout cb_u, 1000, err  # try every second
       (err) =>
-        @logger.errorD "reservation-failed", { system_id, err, val } if err?
-        @logger.infoD "reservation-acquired", { system_id, key: @_reserve_key }
+        @logger.errorD "reservation-failed", { resource, err, val } if err?
+        @logger.infoD "reservation-acquired", { resource, key: @_reserve_key }
         return cb err, @_reserve_key?
     )
 
