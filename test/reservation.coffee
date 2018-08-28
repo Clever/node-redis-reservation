@@ -175,5 +175,5 @@ describe 'redis-reservation', ->
     process.env.REDIS_PORT = 6666  # incorrect port
     test_worker = new SlowWorker resource_id: 'test_resource', (err, resp) ->
       console.log "ERR", err
-      assert.equal err.message, "Redis connection to localhost:6666 failed - connect ECONNREFUSED"
+      assert err.message.match( /Redis connection to .+:6666 failed - connect ECONNREFUSED/ )
       setTimeout done, 1000
