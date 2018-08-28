@@ -1,0 +1,24 @@
+version: 2
+jobs:
+  build:
+    working_directory: ~/Clever/node-redis-reservation
+    docker:
+    - image: circleci/node:8.11.3-stretch
+    - image: redis@sha256:858b1677143e9f8455821881115e276f6177221de1c663d0abef9b2fda02d065
+    environment:
+      CIRCLE_ARTIFACTS: /tmp/circleci-artifacts
+      CIRCLE_TEST_REPORTS: /tmp/circleci-test-results
+    steps:
+    - run:
+        command: cd $HOME && git clone --depth 1 -v https://github.com/Clever/ci-scripts.git && cd ci-scripts && git show --oneline -s
+        name: Clone ci-scripts
+    - checkout
+    - setup_remote_docker
+    - run:
+        command: mkdir -p $CIRCLE_ARTIFACTS $CIRCLE_TEST_REPORTS
+        name: Set up CircleCI artifacts directories
+    - run:
+        command: npm install
+        name: npm install
+    - run: npm test
+    - run: $HOME/ci-scripts/circleci/report-card $RC_DOCKER_USER $RC_DOCKER_PASS "$RC_DOCKER_EMAIL" $RC_GITHUB_TOKEN
