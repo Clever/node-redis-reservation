@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "async": "~0.2.9",
-    "debug": "~0.7.2",
+    "debug": "~2.6.9",
     "kayvee": "^3.8.2",
     "redis": "git+https://github.com/Clever/node_redis#v0.10.1+keepalive",
     "underscore": "~1.5.2"
