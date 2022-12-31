@@ -78,3 +78,4 @@ reservation.release (err) ->
     console.log 'Could not release lock, maybe the reservation was already lost?'
   return err
 ```
+test
